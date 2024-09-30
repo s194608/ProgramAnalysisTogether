@@ -1,0 +1,23 @@
+# Choose a group name, remember it will be made public so choose
+# a random string if you want to be anonymous
+group_name: <INSERT_COOL_GROUPNAME_HERE>
+
+# Answer true if the data you provide can be used anonomized for science!
+for_science: true
+
+# Underneath here add the tools which you want to run
+tools:
+  test:
+    technologies:
+      - python
+
+    executable: ./solutions/syntaxer.py
+      # if on windows you'll need to write it like this:
+      # - python
+    # - guess.py
+
+# Describe your machine here (for research purposes)
+machine:
+  os: windows
+  processor: "2,3 GHz Quad-Core Intel Core i7"
+  memory: "16 GB 3733 MHz LPDDR4X"
