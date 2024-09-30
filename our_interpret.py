@@ -44,7 +44,8 @@ class MethodId:
         )
 
     def classfile(self):
-        return Path('.\decompiled\jpamb\cases\Simple.json')
+        print(self)
+        return Path('.\decompiled\jpamb\cases\Arrays.json')
 
     def load(self):
         import json
@@ -172,6 +173,13 @@ class SimpleInterpreter:
             else:
                 raise ValueError(f"Variable index {var_index} out of range.")
 
+        elif bc["type"] == "ref": # TODO 1
+            int_index = bc["index"]
+            if int_index < len(self.locals):
+                self.stack.insert(0,self.locals[int_index])
+            else:
+                raise ValueError(f"Variable index {var_index} out of range.")
+
         else:
             raise ValueError(f"Unknown load type: {bc['type']}")
 
@@ -206,8 +214,6 @@ class SimpleInterpreter:
         else:
             raise NotImplementedError(f"Unknown condition: {condition}")
         
-            
-
     def step_if(self,bc):
         valueB = self.stack.pop(0)
         valueA = self.stack.pop(0)
@@ -254,7 +260,6 @@ class SimpleInterpreter:
         self.stack.insert(0, obj_id)
         self.pc += 1
 
-
     def step_dup(self, bc):
 
         if not self.stack:
@@ -264,7 +269,6 @@ class SimpleInterpreter:
         self.stack.insert(0, top_value)
 
         self.pc += 1
-
 
     def step_invoke(self, bc):
         method = bc["method"]
@@ -279,11 +283,56 @@ class SimpleInterpreter:
 
         self.pc += 1
 
-
     def step_throw(self, bc):
         exception = self.heap[self.stack.pop(0)]['class']
         l.debug(f"Exception thrown: {exception}")
         self.done = "assertion error" # Stop execution
+
+    # TODO 1
+    def step_newarray(self, bc):
+        type = bc["type"]
+        dim = bc["dim"]
+        length = self.stack.pop()
+
+        new_array = {
+            "type": type,
+            "dim": dim,
+            "length": length,
+            "elements": []
+        }
+
+        array_ref = len(self.heap)
+        self.heap[array_ref] = new_array
+
+        self.stack.insert(0, array_ref)
+        self.pc += 1
+
+
+
+    # TODO 1
+    def step_array_store(self, bc):
+        type = bc["type"]
+        array_ref = self.stack.pop()
+        n = self.heap[array_ref]["length"]
+
+        if type != self.heap[array_ref]["type"]:
+            raise ValueError("Type mismatch in array store operation.")
+
+        while n > 0:
+            x = self.stack.pop()
+            self.heap[array_ref]["elements"].append(x)
+            n -= 1
+        self.pc += 1
+
+        if len(self.heap[array_ref]["elements"]) > self.heap[array_ref]["length"]:
+            l.debug("Exception thrown: ArrayOutOfBounds")
+            self.done = "out of bounds" # Stop execution
+            return
+
+    # TODO 1
+    def step_store(self, bc):
+        index = bc["index"] # int
+        type = bc["type"] # ref   
 
 
 if __name__ == "__main__":
