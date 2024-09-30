@@ -1,6 +1,6 @@
 # Choose a group name, remember it will be made public so choose
 # a random string if you want to be anonymous
-group_name: <INSERT_COOL_GROUPNAME_HERE>
+group_name: "Cool Kids"
 
 # Answer true if the data you provide can be used anonomized for science!
 for_science: true
@@ -10,8 +10,12 @@ tools:
   test:
     technologies:
       - python
+      - Dynamic
+      - Random
 
-    executable: ./solutions/syntaxer.py
+    executable:
+      - python
+      - our_interpret.py
       # if on windows you'll need to write it like this:
       # - python
     # - guess.py
