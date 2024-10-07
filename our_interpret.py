@@ -57,7 +57,7 @@ class MethodId:
 
     def classfile(self):
         print(self)
-        return Path('jpamb/decompiled/jpamb/cases/Simple.json')
+        return Path('.\decompiled\jpamb\cases\Arrays.json')
 
     def load(self):
         import json
@@ -165,6 +165,18 @@ class Interpreter:
         l.debug(f" Done: {self.state.done}")
         return self.state.done
 
+    def step_push(self, bc):
+        try: self.state.stack.insert(0, bc["value"]["value"])
+        except TypeError as e:
+            l.debug(f"Adding null element to stack")
+            self.state.stack.insert(0, None)
+        self.state.pc += 1
+
+    def step_return(self, bc):
+        if bc["type"] is not None:
+            self.state.stack.pop(0)
+        self.state.done = "ok"
+
     def step_binary(self, bc):
         st = self.state
         a = st.stack.pop()
@@ -200,8 +212,7 @@ class Interpreter:
         self.state.pc += 1  # Make sure to advance pc, or reset as needed
         self.state.done = "ok"
 
-    def step_load(self, bc):
-        """Loads a value onto the stack from locals or constants."""
+    def step_load(self,bc):
         if bc["type"] == "const":
             constant = bc["value"]
             self.state.stack.append(constant)
@@ -209,54 +220,89 @@ class Interpreter:
         elif bc["type"] == "var" or bc["type"] == "int" or bc["type"] == "ref":
             var_index = bc["index"]
             if var_index < len(self.state.locals):
-                self.state.stack.insert(0, self.state.locals[var_index])
+                self.state.stack.insert(0,self.state.locals[var_index])
             else:
                 raise ValueError(f"Variable index {var_index} out of range.")
+            
+        elif bc["type"] == "int":
+            int_index = bc["index"]
+            if int_index < len(self.state.locals):
+                self.state.stack.insert(0,self.state.locals[int_index])
+            else:
+                raise ValueError(f"Integer index {int_index} out of range.")
+
+        elif bc["type"] == "ref": # TODO 1
+            ref_index = bc["index"]
+            if ref_index < len(self.state.locals):
+                self.state.stack.insert(0,self.state.locals[ref_index])
+            else:
+                raise ValueError(f"Reference index {ref_index} out of range.")
 
         else:
             raise ValueError(f"Unknown load type: {bc['type']}")
 
         self.state.pc += 1
 
-    def step_ifz(self, bc):
-        """Conditional jump based on whether the stack value is zero."""
+    def step_ifz(self,bc):
+        #Pop first value on stack
         value = self.state.stack.pop(0)
         condition = bc["condition"]
+        #If value is zero, move to target index, if not zero, move to next instruction
+        #Not sure what ne is here, maybe negative. More checking should be done for this function
 
-        if condition == 'ne':  # Not Equal
+        # I did some messing around here. 'ne' is 'not equal' and this can also be e.g. 'gt'
+        # but this returns correctly for the assertion functions, 
+        # we might have to add more options later - Kristine
+        if value is None:
+            l.debug(f"Exception thrown: Attempting to compare null value")
+            self.state.done = "null pointer"
+        elif condition == 'ne':
             if value != 0:
                 self.state.pc = bc["target"]
             else:
                 self.state.pc += 1
-        elif condition == 'gt':  # Greater Than
+        elif condition == 'gt':
             if value > 0:
                 self.state.pc = bc["target"]
             else:
                 self.state.pc += 1
-        elif condition == 'eq':  # Equal to Zero
+        elif condition == "eq":
             if value == 0:
                 self.state.pc = bc["target"]
             else:
                 self.state.pc += 1
         else:
             raise NotImplementedError(f"Unknown condition: {condition}")
-
-    def step_if(self, bc):
-        """Conditional jump based on two stack values."""
+        
+    def step_if(self,bc):
         valueB = self.state.stack.pop(0)
         valueA = self.state.stack.pop(0)
         condition = bc["condition"]
 
-        if condition == 'gt':  # Greater Than
+        if condition == 'gt':
             if valueA > valueB:
+                self.state.pc = bc["target"]
+            else:
+                self.state.pc += 1
+        elif condition == 'eq':
+            if valueA == valueB:
+                self.state.pc = bc["target"]
+            else:
+                self.state.pc += 1
+        elif condition == 'ge':
+            if valueA >= valueB:
+                self.state.pc = bc["target"]
+            else:
+                self.state.pc += 1
+        elif condition == 'ne':
+            if valueA != valueB:
                 self.state.pc = bc["target"]
             else:
                 self.state.pc += 1
         else:
             raise NotImplementedError(f"Unknown condition: {condition}")
 
-    def step_get(self, bc):
-        """Get a value from the heap or locals."""
+    def step_get(self,bc):
         offset = bc["offset"]
         is_static = bc["static"]
 
@@ -277,11 +323,11 @@ class Interpreter:
         self.state.pc += 1
 
     def step_new(self, bc):
-        """Allocates a new object in the heap."""
         class_name = bc["class"]
 
         new_object = {
-            "class": class_name
+            "class": class_name,
+            "initialized": False
         }
 
         obj_id = len(self.state.heap)
@@ -291,7 +337,7 @@ class Interpreter:
         self.state.pc += 1
 
     def step_dup(self, bc):
-        """Duplicates the top value on the stack."""
+
         if not self.state.stack:
             raise ValueError("Stack is empty; cannot duplicate value.")
 
@@ -301,7 +347,6 @@ class Interpreter:
         self.state.pc += 1
 
     def step_invoke(self, bc):
-        """Handles method invocations."""
         method = bc["method"]
         method_name = method["name"]
 
@@ -315,56 +360,96 @@ class Interpreter:
         self.state.pc += 1
 
     def step_throw(self, bc):
-        """Throws an exception and halts execution."""
-        exception = self.state.heap[self.state.stack.pop(0)]['class']
+        ref = self.state.heap[self.state.stack.pop(0)]
+        exception = ref['class']
         l.debug(f"Exception thrown: {exception}")
-        self.state.done = "assertion error"  # Stop execution
 
-    # TODO 1
+        if ref['initialized'] == True:
+            match exception:
+                case "java/lang/AssertionError":
+                    self.state.done = "assertion error" # Stop execution
+        self.state.pc += 1
+
     def step_newarray(self, bc):
         type = bc["type"]
         dim = bc["dim"]
-        length = self.stack.pop()
+        length = self.state.stack.pop()
 
         new_array = {
             "type": type,
             "dim": dim,
             "length": length,
-            "elements": []
+            "elements": [0] * length
         }
 
-        array_ref = len(self.heap)
-        self.heap[array_ref] = new_array
+        array_ref = len(self.state.heap)
+        self.state.heap[array_ref] = new_array
 
-        self.stack.insert(0, array_ref)
-        self.pc += 1
+        self.state.stack.insert(0, array_ref)
+        self.state.pc += 1
 
-
-
-    # TODO 1
     def step_array_store(self, bc):
         type = bc["type"]
-        array_ref = self.stack.pop()
-        n = self.heap[array_ref]["length"]
+        value = self.state.stack.pop(0)
+        index = self.state.stack.pop(0)
+        array_ref = self.state.stack.pop(0)
 
-        if type != self.heap[array_ref]["type"]:
-            raise ValueError("Type mismatch in array store operation.")
+        if array_ref == None:
+            l.debug(f"Exception thrown: Attempting to store to non initilized array")
+            self.state.done = "null pointer"  # Stop execution
 
-        while n > 0:
-            x = self.stack.pop()
-            self.heap[array_ref]["elements"].append(x)
-            n -= 1
-        self.pc += 1
+        else:
+            n = self.state.heap[array_ref]["length"]
 
-        if len(self.heap[array_ref]["elements"]) > self.heap[array_ref]["length"]:
-            l.debug("Exception thrown: ArrayOutOfBounds")
-            self.done = "out of bounds" # Stop execution
-            return
+            if type != self.state.heap[array_ref]["type"]:
+                raise ValueError("Type mismatch in array store operation.")
 
-    # TODO 1
+            if index < 0 or index >= n:
+                l.debug(f"Exception thrown: Array out of bounds")
+                self.state.done = "out of bounds" # Stop execution
+
+            else:
+                l.debug(f"arr_ref: {array_ref}, index: {index}, value: {value}")
+                self.state.heap[array_ref]["elements"][index] = value
+        self.state.pc += 1
+
     def step_store(self, bc):
         index = bc["index"] # int
         type = bc["type"] # ref   
+
+        if type == "ref" or type == "int":
+            self.state.locals.insert(index, self.state.stack.pop(0))
+        else:
+            raise NotImplementedError(f"Unknown store type: {type}")
+
+        self.state.pc += 1
+
+    def step_arraylength(self, bc):
+        array_ref = self.state.stack.pop(0)
+        if array_ref != None:
+            length = self.state.heap[array_ref]["length"]
+            self.state.stack.insert(0, length)
+        else:
+            l.debug(f"Exception thrown: Attempting to get length of non initialized array")
+            self.state.done = "null pointer" # Stop execution
+        self.state.pc += 1
+
+    def step_array_load(self, bc):
+        type = bc["type"]
+
+        arr_ref = self.state.stack.pop()
+        index = self.state.stack.pop()
+
+        l.debug(f"arr_ref: {arr_ref}, index: {index}")
+
+        val = self.state.heap[arr_ref]["elements"][index]
+
+        self.state.stack.append(val)
+
+        self.state.pc += 1
+
+    def step_goto(self, bc):
+        self.state.pc = bc["target"]
 
 def main_analysis(method_id, num_tests=100):
     arithmetic = Arithmetic()
